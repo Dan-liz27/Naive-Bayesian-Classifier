@@ -91,5 +91,5 @@ def main():
 
     st.write("Accuracy is:", accuracy)
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
