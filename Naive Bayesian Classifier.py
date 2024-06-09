@@ -1,95 +1,125 @@
-import streamlit as st
 import pandas as pd
-import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.metrics import confusion_matrix, accuracy_score
+from sklearn.tree import export_graphviz
+import graphviz
+import streamlit as st
+import missingno as mn
+import io
 
-def label_encode(data):
-    unique_values = np.unique(data)
-    label_map = {val: idx for idx, val in enumerate(unique_values)}
-    encoded_data = [label_map[val] for val in data]
-    return encoded_data, label_map
+# Set the page configuration
+st.set_page_config(page_title="Credit Card Fraud Detection", layout="wide")
 
-def main():
-    st.title("Tennis Play Prediction")
+# Sidebar for file upload and model selection
+st.sidebar.title("Upload and Configure")
+uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type="csv")
 
-    # Create a DataFrame
-    data = {
-        'Outlook': ['sunny', 'sunny', 'overcast', 'rainy', 'rainy', 'rainy', 'overcast', 'sunny', 'sunny', 'rainy', 'sunny', 'overcast', 'overcast', 'rainy'],
-        'Temperature': ['hot', 'hot', 'hot', 'mild', 'cool', 'cool', 'cool', 'mild', 'cool', 'mild', 'mild', 'mild', 'hot', 'mild'],
-        'Humidity': ['high', 'high', 'high', 'high', 'normal', 'normal', 'normal', 'high', 'normal', 'normal', 'normal', 'high', 'normal', 'high'],
-        'Windy': [False, True, False, False, False, True, True, False, False, False, True, True, False, True],
-        'PlayTennis': ['no', 'no', 'yes', 'yes', 'yes', 'no', 'yes', 'no', 'yes', 'yes', 'yes', 'yes', 'yes', 'no']
-    }
-    df = pd.DataFrame(data)
+# Header for the main page
+st.title("22AIA-TEAM ROOKIE-Naive Bayesian Classfier")
 
-    st.write("The first 5 values of data are:")
+if uploaded_file is not None:
+    # Read the dataset
+    df = pd.read_csv(uploaded_file)
+
+    # Show the first five rows of the dataset
+    st.header("Dataset Preview")
     st.write(df.head())
 
-    # Obtain Train data and Train output
-    X = df.iloc[:,:-1]
-    st.write("\nThe First 5 values of train data are:\n", X.head())
+    # Display dataset information
+    st.header("Dataset Information")
+    buffer = io.StringIO()
+    df.info(buf=buffer)
+    s = buffer.getvalue()
+    st.text(s)
 
-    y = df.iloc[:,-1]
-    st.write("\nThe first 5 values of Train output are:\n", y.head())
+    # Find and display missing values
+    st.header("Missing Values")
+    st.write(df.isna().sum())
 
-    # Convert categorical variables to numbers 
-    X['Outlook'], outlook_map = label_encode(X['Outlook'])
-    X['Temperature'], temp_map = label_encode(X['Temperature'])
-    X['Humidity'], humidity_map = label_encode(X['Humidity'])
+    # Visualize missing values
+    st.subheader("Missing Values Visualization")
+    fig, ax = plt.subplots()
+    mn.bar(df, ax=ax)
+    st.pyplot(fig)
 
-    st.write("\nNow the Train data is :\n", X.head())
+    X = df.drop('fraud', axis=1)
+    Y = df['fraud']
 
-    # Convert target labels to numbers
-    y, play_tennis_map = label_encode(y)
-    st.write("\nNow the Train output is\n", y)
+    st.header("Feature Analysis")
+    st.subheader("Boxplot of Features")
+    fig, axes = plt.subplots(5, 5, figsize=(20, 20))
+    for i, col in enumerate(X.columns):
+        if i < 25:  # Adjust according to the number of features
+            sns.boxplot(X[col], ax=axes[i//5, i%5])
+            axes[i//5, i%5].set_xlabel(col, fontsize=20)
+    plt.tight_layout()
+    st.pyplot(fig)
 
-    # Convert y to NumPy array for indexing
-    y = np.array(y)
+    # Split X and Y
+    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
 
-    # Split data into train and test sets
-    data_size = X.shape[0]
-    train_size = int(0.8 * data_size)
-    np.random.seed(42)  # For reproducibility
-    indices = np.random.permutation(data_size)
-    train_indices, test_indices = indices[:train_size], indices[train_size:]
-    X_train, X_test = X.iloc[train_indices], X.iloc[test_indices]
-    y_train, y_test = y[train_indices], y[test_indices]
+    # Standardize the data
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
 
-    # Train Gaussian Naive Bayes manually
-    prior_probabilities = {}
-    for label in np.unique(y_train):
-        prior_probabilities[label] = np.sum(y_train == label) / len(y_train)
+    # Decision Tree classifier
+    clf = DecisionTreeClassifier(criterion="entropy", random_state=0)
+    clf.fit(X_train, Y_train)
 
-    likelihoods = {}
-    for feature in X_train.columns:
-        likelihoods[feature] = {}
-        for label in np.unique(y_train):
-            label_indices = np.where(y_train == label)[0]
-            feature_values = X_train.iloc[label_indices][feature]  # Use iloc for integer-based indexing
-            value_counts = np.bincount(feature_values)
-            total_counts = np.sum(value_counts)
-            likelihoods[feature][label] = {value: count / total_counts for value, count in enumerate(value_counts)}
+    # Predict the values of testing
+    Y_pred_dt = clf.predict(X_test)
 
-    # Predict using Naive Bayes
-    def predict(X):
-        predictions = []
-        for idx, row in X.iterrows():
-            posterior_probabilities = {}
-            for label in np.unique(y_train):
-                posterior_probabilities[label] = prior_probabilities[label]
-                for feature, value in row.items():  # Use items() instead of iteritems()
-                    if value in likelihoods[feature][label]:
-                        posterior_probabilities[label] *= likelihoods[feature][label][value]
-                    else:
-                        # Handle unseen feature values by assuming a small probability
-                        posterior_probabilities[label] *= 1e-6
-            predictions.append(max(posterior_probabilities, key=posterior_probabilities.get))
-        return predictions
+    # Calculate and display the confusion matrix
+    st.header("Model Performance")
+    st.subheader("Decision Tree")
+    st.write("Confusion Matrix:")
+    cm_dt = confusion_matrix(Y_test, Y_pred_dt)
+    st.write(cm_dt)
 
-    # Evaluate accuracy
-    y_pred = predict(X_test)
-    accuracy = np.mean(y_pred == y_test)
+    # Calculate and display the accuracy score
+    accuracy_dt = accuracy_score(Y_test, Y_pred_dt)
+    st.write("Accuracy:", accuracy_dt)
 
-    st.write("Accuracy is:", accuracy)
+    # Visualize the decision tree
+    st.write("Decision Tree Visualization:")
+    dot_data = export_graphviz(clf, feature_names=X.columns, filled=True)
+    st.graphviz_chart(dot_data)
 
-if __name__ == "__main__":
-    main()
+    # Naive Bayes Algorithm
+    clf1 = GaussianNB()
+
+    # Train the model
+    clf1.fit(X_train, Y_train)
+
+    # Predict the values of testing
+    Y_pred_nb = clf1.predict(X_test)
+
+    # Calculate and display the confusion matrix
+    st.subheader("Naive Bayes")
+    st.write("Confusion Matrix:")
+    cm_nb = confusion_matrix(Y_test, Y_pred_nb)
+    st.write(cm_nb)
+
+    # Calculate and display the accuracy score
+    accuracy_nb = accuracy_score(Y_test, Y_pred_nb)
+    st.write("Accuracy:", accuracy_nb)
+
+    # Comparing the accuracy scores
+    accuracies = [accuracy_dt * 100, accuracy_nb * 100]
+    labels = ['Decision Tree', 'Naive Bayes']
+
+    # Display the accuracy comparison bar chart
+    st.subheader("Accuracy Comparison")
+    fig, ax = plt.subplots()
+    ax.bar(labels, accuracies, color=['blue', 'green'])
+    ax.set_ylabel('Accuracy (%)')
+    ax.set_title('Comparison of Model Accuracies')
+    st.pyplot(fig)
+else:
+    st.info("Please upload a CSV file to proceed.")
